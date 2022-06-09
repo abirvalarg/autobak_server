@@ -1,0 +1,27 @@
+[package]
+name = "autobak_server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ctrlc = "^3.2"
+lazy_static = "^1.4"
+chrono = "^0.4"
+openssl = "^0.10"
+anyhow = "^1.0"
+fs2 = "^0.4"
+futures = "^0.3"
+
+[dependencies.mio]
+version = "^0.8"
+features = ["os-poll", "net"]
+
+[dependencies.sqlx]
+version = "^0.5"
+features = ["runtime-async-std-native-tls", "mysql"]
+
+[dependencies.async-std]
+version = "^1.11"
+features = ["attributes"]

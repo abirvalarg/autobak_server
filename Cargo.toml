@@ -13,6 +13,7 @@ openssl = "^0.10"
 anyhow = "^1.0"
 fs2 = "^0.4"
 futures = "^0.3"
+sha3 = "^0.10"
 
 [dependencies.sqlx]
 version = "^0.5"

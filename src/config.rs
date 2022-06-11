@@ -14,7 +14,13 @@ pub struct Config {
 	pub overwrite_log: bool,
 	pub host: SocketAddr,
 	pub certificate: String,
-	pub key: String
+	pub key: String,
+	pub db_host: String,
+	pub db_port: u16,
+	pub db_name: String,
+	pub db_user: String,
+	pub db_password: String,
+	pub db_ssl: bool
 }
 
 impl Default for Config {
@@ -26,7 +32,13 @@ impl Default for Config {
 			overwrite_log: false,
 			host: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 46278),
 			certificate: "cert.crt".into(),
-			key: "cert.key".into()
+			key: "cert.key".into(),
+			db_host: "".into(),
+			db_port: 3306,
+			db_name: "".into(),
+			db_user: "".into(),
+			db_password: "".into(),
+			db_ssl: false
 		}
 	}
 }
@@ -43,6 +55,12 @@ impl Config {
 				"host" => Ok(Config { host: val.parse()?, ..cfg }),
 				"cert" | "certificate" => Ok(Config { certificate: val.clone(), ..cfg }),
 				"key" => Ok(Config { key: val.clone(), ..cfg }),
+				"dbhost" => Ok(Config { db_host: val.clone(), ..cfg }),
+				"dbport" => Ok(Config { db_port: val.parse()?, ..cfg }),
+				"dbname" => Ok(Config { db_name: val.clone(), ..cfg }),
+				"dbuser" => Ok(Config { db_user: val.clone(), ..cfg }),
+				"dbpassword" => Ok(Config { db_password: val.clone(), ..cfg }),
+				"dbssl" => Ok(Config { db_ssl: val.parse()?, ..cfg }),
 				_ => Err(anyhow::Error::from(Error::UnknownOption(opt.clone())))
 			}
 		})

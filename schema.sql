@@ -1,0 +1,10 @@
+-- A script to set up a database.
+-- WILL BE CHANGED AND WILL NOT INCLUDE MIGRATION CODE
+USE autobak;
+
+CREATE TABLE user (
+	id INT(64) UNSIGNED NOT NULL UNIQUE PRIMARY KEY AUTO_INCREMENT,
+	username VARCHAR(80) NOT NULL UNIQUE,
+	password CHAR(73) NOT NULL,
+	is_superuser SET('Y', 'N') NOT NULL DEFAULT 'N'
+);

@@ -1,10 +1,11 @@
 use async_std::{
 	sync::Arc,
 	net::TcpStream,
-	io::ReadExt
+	io::{ReadExt, WriteExt}
 };
 use openssl::ssl::Ssl;
 use crate::{debug, error};
+use state::Expectation;
 
 pub mod acceptor;
 mod stream;
@@ -17,7 +18,7 @@ pub async fn handle_client(info: Arc<crate::ServerInfo>, client: TcpStream) {
 		let mut ssl = Ssl::new(info.ssl.context())?;
 		ssl.set_accept_state();
 		let mut stream = stream::Stream::new(&info.ssl, client).await?;
-		let mut state = state::State::default();
+		let mut state = state::State::new(info.clone());
 
 		let mut buffer = [0; 4096];
 		let mut buf_len = 0;
@@ -28,28 +29,38 @@ pub async fn handle_client(info: Arc<crate::ServerInfo>, client: TcpStream) {
 				break;
 			}
 
-			if state.expects_line() {
-				let mut nl_pos = None;
-				for check_pos in buf_len..buf_len + len {
-					if buffer[check_pos] == b'\n' {
-						let start = match nl_pos {
-							Some(nl_pos) => nl_pos + 1,
-							None => 0
-						};
-						state.next_piece(&buffer[start..check_pos]).await;
-						nl_pos = Some(check_pos);
-					}
-				}
-
-				match nl_pos {
-					Some(nl_pos) => {
-						for pos in nl_pos..buf_len + len {
-							buffer[pos - nl_pos] = buffer[pos];
+			match state.expects() {
+				Expectation::Line => {
+					let mut nl_pos = None;
+					for check_pos in buf_len..buf_len + len {
+						if buffer[check_pos] == b'\n' {
+							let start = match nl_pos {
+								Some(nl_pos) => nl_pos + 1,
+								None => 0
+							};
+							let res = state.next_piece(&buffer[start..check_pos]).await;
+							match res {
+								Ok(res) => stream.write_all(&(&res).into() as &Vec<_>).await?,
+								Err(err) => {
+									stream.write_all(b"err:server\n").await?;
+									return Err(err);
+								}
+							}
+							nl_pos = Some(check_pos);
 						}
-						buf_len = buf_len + len - nl_pos;
 					}
-					None => buf_len += len
+
+					match nl_pos {
+						Some(nl_pos) => {
+							for pos in nl_pos + 1..buf_len + len {
+								buffer[pos - nl_pos - 1] = buffer[pos];
+							}
+							buf_len = buf_len + len - nl_pos - 1;
+						}
+						None => buf_len += len
+					}
 				}
+				Expectation::Nothing => break
 			}
 		}
 

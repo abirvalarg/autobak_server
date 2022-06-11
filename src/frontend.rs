@@ -1,3 +1,7 @@
+use std::{
+	fmt::{self, Display},
+	net::IpAddr
+};
 use async_std::{
 	sync::Arc,
 	net::TcpStream,
@@ -15,10 +19,15 @@ pub async fn handle_client(info: Arc<crate::ServerInfo>, client: TcpStream) {
 	debug!("Handling connection from {}", client.peer_addr().unwrap());
 
 	let func = async move {
+		let addr = client.peer_addr()?;
+		let addr = match addr.ip() {
+			IpAddr::V4(ip) => ip,
+			IpAddr::V6(_) => return Err(UnsupportenAddr.into())
+		};
 		let mut ssl = Ssl::new(info.ssl.context())?;
 		ssl.set_accept_state();
 		let mut stream = stream::Stream::new(&info.ssl, client).await?;
-		let mut state = state::State::new(info.clone());
+		let mut state = state::State::new(info.clone(), addr);
 
 		let mut buffer = [0; 4096];
 		let mut buf_len = 0;
@@ -72,3 +81,14 @@ pub async fn handle_client(info: Arc<crate::ServerInfo>, client: TcpStream) {
 		Err(err) => error!("Task ended with an error: {err}")
 	}
 }
+
+#[derive(Debug)]
+pub struct UnsupportenAddr;
+
+impl Display for UnsupportenAddr {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "IPv6 is not supported yet")
+	}
+}
+
+impl std::error::Error for UnsupportenAddr {}

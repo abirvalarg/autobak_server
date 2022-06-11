@@ -1,5 +1,7 @@
+use std::net::Ipv4Addr;
 use anyhow::Result;
 use async_std::sync::Arc;
+use crate::info::audit::Event;
 #[allow(unused_imports)]
 use crate::{debug, error};
 
@@ -7,15 +9,17 @@ use crate::{debug, error};
 pub struct State {
 	info: Arc<crate::ServerInfo>,
 	state: ConnectState,
-	user: Option<Arc<crate::info::user::User>>
+	user: Option<Arc<crate::info::user::User>>,
+	addr: Ipv4Addr
 }
 
 impl State {
-	pub fn new(info: Arc<crate::ServerInfo>) -> Self {
+	pub fn new(info: Arc<crate::ServerInfo>, addr: Ipv4Addr) -> Self {
 		State {
 			info,
 			state: ConnectState::Auth,
-			user: None
+			user: None,
+			addr
 		}
 	}
 
@@ -55,9 +59,11 @@ impl State {
 					Some(user) => if user.check_password(password) {
 						self.user = Some(user);
 						self.state = ConnectState::Echo;
+						self.info.audit.log(self.user.as_deref(), self.addr, Event::Auth, true).await?;
 						Response::Ok(ResponseContent::Empty)
 					} else {
 						self.state = ConnectState::End;
+						self.info.audit.log(Some(&user), self.addr, Event::Auth, false).await?;
 						Response::NoAuth
 					}
 					None => {

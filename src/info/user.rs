@@ -114,4 +114,8 @@ impl User {
 			None => false
 		}
 	}
+
+	pub fn id(&self) -> u64 {
+		self.id
+	}
 }

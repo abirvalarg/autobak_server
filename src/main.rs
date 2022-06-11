@@ -46,7 +46,8 @@ async fn run(args: args::Args) -> Result<()> {
     let info = Arc::new(ServerInfo {
         config: cfg,
         ssl: ssl.build(),
-        users: info::user::UserPool::new(&db)
+        users: info::user::UserPool::new(&db),
+        audit: info::audit::Audit::new(&db)
     });
 
     let tasks: Arc<Mutex<(usize, HashMap<usize, JoinHandle<()>>)>> = Arc::new(Mutex::new((0, HashMap::new())));
@@ -91,7 +92,8 @@ async fn run(args: args::Args) -> Result<()> {
 pub struct ServerInfo {
     pub config: Config,
     pub ssl: SslAcceptor,
-    pub users: info::user::UserPool
+    pub users: info::user::UserPool,
+    pub audit: info::audit::Audit
 }
 
 #[async_std::main]

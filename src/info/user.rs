@@ -95,7 +95,21 @@ impl User {
 		}))
 	}
 
-	pub async fn get_shash(&self, name: &str) -> Result<Option<Arc<Stash>>> {
+	pub async fn all_stashes(&self) -> Result<Vec<String>> {
+		match self.db {
+			Some(ref db) => {
+				let mut db = db.acquire().await?;
+				let query = query!(
+					"SELECT name FROM stash WHERE owner=?",
+					self.id
+				);
+				Ok(query.fetch_all(&mut db).await?.iter().map(|res| res.name.clone()).collect())
+			}
+			None => Ok(vec![])
+		}
+	}
+
+	pub async fn get_stash(&self, name: &str) -> Result<Option<Arc<Stash>>> {
 		let mut stashes = self.stashes.lock().await;
 		match stashes.get(name) {
 			Some(stash) => match stash.upgrade() {

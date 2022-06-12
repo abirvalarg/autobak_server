@@ -35,4 +35,8 @@ impl File {
 	pub fn update_time(&self) -> u64 {
 		self.update_time
 	}
+
+	pub fn read(&self) -> Vec<u8> {
+		std::fs::read(&self.path).unwrap()
+	}
 }

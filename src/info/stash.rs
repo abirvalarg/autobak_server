@@ -20,6 +20,10 @@ impl Stash {
 		}
 		Ok(Stash { files })
 	}
+
+	pub fn get(&self, name: &str) -> Option<File> {
+		self.files.get(name).map(|(id, upd)| File::new(*id, *upd)).flatten()
+	}
 }
 
 impl<'a> IntoIterator for &'a Stash {

@@ -27,7 +27,7 @@ impl State {
 		use ConnectState::*;
 		use Expectation::*;
 		match self.state {
-			Auth | Echo => Line,
+			Auth | Command => Line,
 			End => Nothing
 		}
 	}
@@ -41,7 +41,18 @@ impl State {
 		match String::from_utf8(buffer.into()) {
 			Ok(line) => match self.state {
 				Auth => self.try_login(&line).await,
-				Echo => Ok(Response::Ok(ResponseContent::Lines(vec![line]))),
+				Command => {
+					let (cmd, args) = match line.split_once(' ') {
+						Some(res) => (res.0.trim(), res.1.trim()),
+						None => (line.trim(), "")
+					};
+					match cmd {
+						"" => Ok(Response::None),
+						"list" => self.list(args).await,
+						"download" => self.download(args).await,
+						_ => Ok(Response::NoCmd)
+					}
+				},
 				End => Ok(Response::BadFormat)
 			},
 			Err(err) => {
@@ -58,12 +69,12 @@ impl State {
 				match self.info.users.get(username).await? {
 					Some(user) => if user.check_password(password) {
 						self.user = Some(user);
-						self.state = ConnectState::Echo;
-						self.info.audit.log(self.user.as_deref(), self.addr, Event::Auth, true).await?;
+						self.state = ConnectState::Command;
+						self.info.audit.log(self.user.as_deref(), self.addr, Event::Auth, true, None).await?;
 						Response::Ok(ResponseContent::Empty)
 					} else {
 						self.state = ConnectState::End;
-						self.info.audit.log(Some(&user), self.addr, Event::Auth, false).await?;
+						self.info.audit.log(Some(&user), self.addr, Event::Auth, false, None).await?;
 						Response::NoAuth
 					}
 					None => {
@@ -78,12 +89,59 @@ impl State {
 			}
 		})
 	}
+
+	async fn list(&self, args: &str) -> Result<Response> {
+		let args: Vec<&str> = args.split(' ').collect();
+		match args[0] {
+			"stashes" => Ok(Response::Ok(ResponseContent::Lines(
+				self.user.as_ref().unwrap().all_stashes().await?
+			))),
+			"files" => if args.len() == 2 {
+				match self.user.as_ref().unwrap().get_stash(args[1]).await? {
+					Some(stash) => {
+						self.info.audit.log(self.user.as_deref(), self.addr, Event::List, true, Some(args[1])).await?;
+						Ok(Response::Ok(ResponseContent::Lines(
+							stash.into_iter().map(|s| format!("{} {}", s.0, s.1.update_time())).collect()
+						)))
+					}
+					None => {
+						self.info.audit.log(self.user.as_deref(), self.addr, Event::List, false, Some(args[1])).await?;
+						Ok(Response::NoStash)
+					}
+				}
+			} else {
+				Ok(Response::BadArgs)
+			}
+			_ => Ok(Response::BadArgs)
+		}
+	}
+
+	async fn download(&self, args: &str) -> Result<Response> {
+		let res = match args.split_once(' ') {
+			Some((stash, path)) => match self.user.as_ref().unwrap().get_stash(stash).await? {
+				Some(stash) => match stash.get(path) {
+					Some(file) => Ok(Response::Ok(ResponseContent::Binary(file.read()))),
+					None => Ok(Response::NoFile)
+				}
+				None => Ok(Response::NoStash)
+			}
+			None => Ok(Response::BadArgs)
+		};
+		match res {
+			Ok(ref data) => match data {
+				Response::Ok(_) => self.info.audit.log(self.user.as_deref(), self.addr, Event::Download, true, Some(args)).await?,
+				_ => self.info.audit.log(self.user.as_deref(), self.addr, Event::Download, false, Some(args)).await?
+			}
+			_ => ()
+		};
+		res
+	}
 }
 
 #[derive(PartialEq)]
 enum ConnectState {
 	Auth,
-	Echo,
+	Command,
 	End
 }
 
@@ -93,14 +151,20 @@ pub enum Expectation {
 }
 
 pub enum Response {
+	None,
 	Ok(ResponseContent),
 	BadFormat,
-	NoAuth
+	NoAuth,
+	NoCmd,
+	BadArgs,
+	NoStash,
+	NoFile
 }
 
 pub enum ResponseContent {
 	Empty,
-	Lines(Vec<String>)
+	Lines(Vec<String>),
+	Binary(Vec<u8>)
 }
 
 impl Into<Vec<u8>> for &Response {
@@ -108,6 +172,7 @@ impl Into<Vec<u8>> for &Response {
 		use Response::*;
 		use ResponseContent::*;
 		match self {
+			None => vec![],
 			Ok(content) => match content {
 				Empty => Vec::from(&b"ok:0\n"[..]),
 				Lines(lines) => {
@@ -123,9 +188,18 @@ impl Into<Vec<u8>> for &Response {
 					let res = lines.iter().fold(res, |res, line| res + line + "\n");
 					Vec::from(res.as_bytes())
 				}
+				Binary(data) => {
+					let mut res = Vec::from(format!("ok:b{}\n", data.len()).as_bytes());
+					res.extend(data);
+					res
+				}
 			},
 			BadFormat => Vec::from(&b"err:format\n"[..]),
-			NoAuth => Vec::from(&b"err:auth\n"[..])
+			NoAuth => Vec::from(&b"err:auth\n"[..]),
+			NoCmd => Vec::from(&b"err:nocommand\n"[..]),
+			BadArgs => Vec::from(&b"err:badargs\n"[..]),
+			NoStash => Vec::from(&b"err:nostash\n"[..]),
+			NoFile => Vec::from(&b"err:nofile\n"[..])
 		}
 	}
 }

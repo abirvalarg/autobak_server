@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use anyhow::Result;
 use async_std::sync::{Arc, Weak, Mutex};
-use futures::StreamExt;
 use sha3::{Sha3_256, Digest};
-use sqlx::{MySqlPool, QueryBuilder, Row};
+use sqlx::{MySqlPool, query};
+use super::stash::Stash;
 
 #[derive(Clone)]
 pub struct UserPool {
@@ -27,7 +27,7 @@ impl UserPool {
 		match cache.get(username) {
 			Some(user) => Ok(Some(user)),
 			None => match User::from_db_username(&self.db, username).await? {
-				Some(user) => Ok(Some(cache.add(user))),
+				Some(user) => Ok(Some(cache.add(user).await)),
 				None => Ok(None)
 			}
 		}
@@ -66,7 +66,7 @@ impl UserCache {
 		}
 	}
 
-	fn add(&mut self, user: User) -> Arc<User> {
+	async fn add(&mut self, user: User) -> Arc<User> {
 		let user = Arc::new(user);
 		self.name_cache.insert(user.username.clone(), Arc::downgrade(&user));
 		self.id_cache.insert(user.id, Arc::downgrade(&user));
@@ -78,28 +78,57 @@ pub struct User {
 	db: Option<MySqlPool>,
 	id: u64,
 	username: String,
-	password_hash: String
+	password_hash: String,
+	stashes: Mutex<HashMap<String, Weak<Stash>>>
 }
 
 impl User {
 	async fn from_db_username(db_pool: &MySqlPool, username: &str) -> Result<Option<Self>> {
 		let mut db = db_pool.acquire().await?;
-		let mut query = QueryBuilder::new("SELECT id, password FROM user WHERE username=");
-		query.push_bind(username);
-		let query = query.build();
-		let res = match query.fetch(&mut db).next().await {
-			Some(res) => {
-				let res = res?;
-				Ok(Some(User {
-					db: Some(db_pool.clone()),
-					id: res.get(0),
-					username: username.into(),
-					password_hash: res.get(1)
-				}))
+		let query = query!("SELECT id, password FROM user WHERE username=?", username);
+		Ok(query.fetch_optional(&mut db).await?.map(|rec| User {
+			db: Some(db_pool.clone()),
+			id: rec.id,
+			username: username.into(),
+			password_hash: rec.password,
+			stashes: Mutex::new(HashMap::new())
+		}))
+	}
+
+	pub async fn get_shash(&self, name: &str) -> Result<Option<Arc<Stash>>> {
+		let mut stashes = self.stashes.lock().await;
+		match stashes.get(name) {
+			Some(stash) => match stash.upgrade() {
+				Some(stash) => Ok(Some(stash)),
+				None => {
+					stashes.remove(name);
+					self.load_stash(&mut stashes, name).await
+				}
+			}
+			None => self.load_stash(&mut stashes, name).await
+		}
+	}
+
+	async fn load_stash(&self, stashes: &mut HashMap<String, Weak<Stash>>, name: &str) -> Result<Option<Arc<Stash>>> {
+		match self.db {
+			Some(ref db_pool) => {
+				let mut db = db_pool.acquire().await?;
+				let query = query!(
+					"SELECT id FROM stash WHERE owner=? AND name=?",
+					self.id,
+					name
+				);
+				match query.fetch_optional(&mut db).await? {
+					Some(res) => {
+						let stash = Arc::new(Stash::new(&db_pool, res.id).await?);
+						stashes.insert(name.into(), Arc::downgrade(&stash));
+						Ok(Some(stash))
+					}
+					None => Ok(None)
+				}
 			}
 			None => Ok(None)
-		};
-		res
+		}
 	}
 
 	pub fn check_password(&self, password: &str) -> bool {

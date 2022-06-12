@@ -1,12 +1,17 @@
 use std::{
 	collections::HashMap,
 	fmt::{self, Display},
-	net::{SocketAddr, IpAddr, Ipv4Addr}
+	net::{SocketAddr, IpAddr, Ipv4Addr},
+	sync::Mutex
 };
 use anyhow::Result;
 use crate::log::LogLevel;
 
-#[derive(Debug)]
+lazy_static::lazy_static! {
+	static ref CONFIG: Mutex<Option<Config>> = Mutex::new(None);
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
 	pub log_path: String,
 	pub log_level: LogLevel,
@@ -20,7 +25,8 @@ pub struct Config {
 	pub db_name: String,
 	pub db_user: String,
 	pub db_password: String,
-	pub db_ssl: bool
+	pub db_ssl: bool,
+	pub storage_path: String,
 }
 
 impl Default for Config {
@@ -38,7 +44,8 @@ impl Default for Config {
 			db_name: "".into(),
 			db_user: "".into(),
 			db_password: "".into(),
-			db_ssl: false
+			db_ssl: false,
+			storage_path: "/var/autobak".into()
 		}
 	}
 }
@@ -46,7 +53,7 @@ impl Default for Config {
 impl Config {
 	pub fn load(path: &str) -> Result<Self> {
 		let raw = raw_config(path)?;
-		raw.iter().try_fold(Config::default(), |cfg, (opt, val)| {
+		let res = raw.iter().try_fold(Config::default(), |cfg, (opt, val)| {
 			match opt.to_lowercase().as_str() {
 				"logpath" => Ok(Config { log_path: val.clone(), ..cfg }),
 				"loglevel" => Ok(Config { log_level: val.as_str().try_into()?, ..cfg }),
@@ -61,9 +68,16 @@ impl Config {
 				"dbuser" => Ok(Config { db_user: val.clone(), ..cfg }),
 				"dbpassword" => Ok(Config { db_password: val.clone(), ..cfg }),
 				"dbssl" => Ok(Config { db_ssl: val.parse()?, ..cfg }),
+				"storagepath" => Ok(Config { storage_path: val.clone(), ..cfg }),
 				_ => Err(anyhow::Error::from(Error::UnknownOption(opt.clone())))
 			}
-		})
+		})?;
+		*CONFIG.lock().unwrap() = Some(res.clone());
+		Ok(res)
+	}
+
+	pub fn get() -> Self {
+		CONFIG.lock().unwrap().as_ref().unwrap().clone()
 	}
 }
 

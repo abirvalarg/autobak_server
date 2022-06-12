@@ -44,7 +44,6 @@ async fn run(args: args::Args) -> Result<()> {
     let db = db?;
 
     let info = Arc::new(ServerInfo {
-        config: cfg,
         ssl: ssl.build(),
         users: info::user::UserPool::new(&db),
         audit: info::audit::Audit::new(&db)
@@ -90,7 +89,6 @@ async fn run(args: args::Args) -> Result<()> {
 }
 
 pub struct ServerInfo {
-    pub config: Config,
     pub ssl: SslAcceptor,
     pub users: info::user::UserPool,
     pub audit: info::audit::Audit
